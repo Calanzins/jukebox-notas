@@ -4817,8 +4817,15 @@ export class ChangeNoteLength extends ChangePins {
 }
 
 export class ChangeNoteTruncate extends ChangeSequence {
-    constructor(doc: SongDocument, pattern: Pattern, start: number, end: number, skipNote: Note | null = null, force: boolean = false) {
+    constructor(doc: SongDocument, pattern: Pattern, start: number, end: number, skipNote: Note | null = null, force: boolean = false, overlap: boolean = false) {
         super();
+        // Notas sobrepostas: com overlap, os canais de instrumento só cortam as notas que dividem
+        // alguma altura com skipNote, como os canais de modulação já faziam por linha.
+        const isMod: boolean = doc.song.getChannelIsMod(doc.channel);
+        const byRow: boolean = isMod || overlap;
+        const sameRow = (note: Note): boolean => skipNote != null && (isMod
+            ? note.pitches[0] == skipNote.pitches[0]
+            : note.pitches.some(pitch => skipNote!.pitches.indexOf(pitch) != -1));
         let i: number = 0;
         while (i < pattern.notes.length) {
             const note: Note = pattern.notes[i];
@@ -4828,13 +4835,13 @@ export class ChangeNoteTruncate extends ChangeSequence {
                 i++;
             } else if (note.start >= end) {
                 // Allow out-of-order notes for mods so that all get checked.
-                if (!doc.song.getChannelIsMod(doc.channel)) {
+                if (!byRow) {
                     break;
                 } else {
                     i++;
                 }
             } else if (note.start < start && note.end > end) {
-                if (!doc.song.getChannelIsMod(doc.channel) || force || (skipNote != null && note.pitches[0] == skipNote.pitches[0])) {
+                if (!byRow || force || sameRow(note)) {
                     const copy: Note = note.clone();
                     this.append(new ChangeNoteLength(doc, note, note.start, start));
                     i++;
@@ -4843,15 +4850,15 @@ export class ChangeNoteTruncate extends ChangeSequence {
                 }
                 i++;
             } else if (note.start < start) {
-                if (!doc.song.getChannelIsMod(doc.channel) || force || (skipNote != null && note.pitches[0] == skipNote.pitches[0]))
+                if (!byRow || force || sameRow(note))
                     this.append(new ChangeNoteLength(doc, note, note.start, start));
                 i++;
             } else if (note.end > end) {
-                if (!doc.song.getChannelIsMod(doc.channel) || force || (skipNote != null && note.pitches[0] == skipNote.pitches[0]))
+                if (!byRow || force || sameRow(note))
                     this.append(new ChangeNoteLength(doc, note, end, note.end));
                 i++;
             } else {
-                if (!doc.song.getChannelIsMod(doc.channel) || force || (skipNote != null && note.pitches[0] == skipNote.pitches[0]))
+                if (!byRow || force || sameRow(note))
                     this.append(new ChangeNoteAdded(doc, pattern, note, i, true));
                 else
                     i++;

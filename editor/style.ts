@@ -528,6 +528,21 @@ html {
 	position: absolute;
 	right: 10px;
 }
+/* Notas sobrepostas: botão que liga e desliga a sobreposição, abaixo dos botões de zoom. */
+.beepboxEditor .overlapButton {
+	position: absolute;
+	right: 10px;
+	top: 90px;
+	width: auto;
+	padding: 0 6px;
+	font-size: 11px;
+	opacity: 0.75;
+}
+.beepboxEditor .overlapButton.active {
+	opacity: 1;
+	color: var(--ui-widget-background);
+	background: var(--primary-text);
+}
 .beepboxEditor .zoomInButton {
 	top: 10px;
 }

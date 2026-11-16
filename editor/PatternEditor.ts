@@ -128,6 +128,7 @@ export class PatternEditor {
     private _mouseYStart: number = 0;
     private _touchTime: number = 0;
     private _shiftHeld: boolean = false;
+    private _altHeld: boolean = false;
     private _dragConfirmed: boolean = false;
     private _draggingStartOfSelection: boolean = false;
     private _draggingEndOfSelection: boolean = false;
@@ -304,6 +305,26 @@ export class PatternEditor {
         return Math.floor(input / minDivision) * minDivision;
     }
 
+    // Notas sobrepostas: o botão Sobrepor ou o Alt seguro fazem os canais de instrumento e
+    // bateria se comportarem como os de modulação, em que cada linha de altura é independente.
+    private _overlapActive(): boolean {
+        return !this._doc.song.getChannelIsMod(this._doc.channel) && (this._doc.overlapMode || this._altHeld);
+    }
+
+    // True se a nota toca esta altura neste ponto, já contando as dobras de altura.
+    private _noteHasPitchAt(note: Note, pitch: number, part: number): boolean {
+        let interval: number = note.pins[note.pins.length - 1].interval;
+        for (let i: number = 1; i < note.pins.length; i++) {
+            const prevPin: NotePin = note.pins[i - 1];
+            const nextPin: NotePin = note.pins[i];
+            if (note.start + nextPin.time < part) continue;
+            const ratio: number = Math.max(0, Math.min(1, (part - note.start - prevPin.time) / Math.max(1, nextPin.time - prevPin.time)));
+            interval = prevPin.interval + (nextPin.interval - prevPin.interval) * ratio;
+            break;
+        }
+        return note.pitches.some(notePitch => Math.round(notePitch + interval) == pitch);
+    }
+
     private _updateCursorStatus(): void {
         this._cursor = new PatternCursor();
 
@@ -321,10 +342,14 @@ export class PatternEditor {
         let foundNote: boolean = false;
 
         if (this._pattern != null) {
+            const isMod: boolean = this._doc.song.getChannelIsMod(this._doc.channel);
+            const overlap: boolean = this._overlapActive();
+            const mouseRow: number = Math.floor(this._findMousePitch(this._mouseY));
+            const onMouseRow = (note: Note): boolean => isMod ? note.pitches[0] == mouseRow : this._noteHasPitchAt(note, mouseRow, this._cursor.exactPart);
             for (const note of this._pattern.notes) {
                 if (note.end <= this._cursor.exactPart) {
-                    if (this._doc.song.getChannelIsMod(this._doc.channel)) {
-                        if (note.pitches[0] == Math.floor(this._findMousePitch(this._mouseY))) {
+                    if (isMod || overlap) {
+                        if (onMouseRow(note)) {
                             this._cursor.prevNote = note;
                         }
                         if (!foundNote)
@@ -335,8 +360,8 @@ export class PatternEditor {
                         this._cursor.curIndex++;
                     }
                 } else if (note.start <= this._cursor.exactPart && note.end > this._cursor.exactPart) {
-                    if (this._doc.song.getChannelIsMod(this._doc.channel)) {
-                        if (note.pitches[0] == Math.floor(this._findMousePitch(this._mouseY))) {
+                    if (isMod || overlap) {
+                        if (onMouseRow(note)) {
                             this._cursor.curNote = note;
                             foundNote = true;
                         }
@@ -348,8 +373,8 @@ export class PatternEditor {
                         this._cursor.curNote = note;
                     }
                 } else if (note.start > this._cursor.exactPart) {
-                    if (this._doc.song.getChannelIsMod(this._doc.channel)) {
-                        if (note.pitches[0] == Math.floor(this._findMousePitch(this._mouseY))) {
+                    if (isMod || overlap) {
+                        if (onMouseRow(note)) {
                             this._cursor.nextNote = note;
                             break;
                         }
@@ -359,6 +384,8 @@ export class PatternEditor {
                     }
                 }
             }
+            // Com sobreposição, a posição na lista vem da própria nota, que pode não ser a última a começar.
+            if (overlap && this._cursor.curNote != null) this._cursor.curIndex = this._pattern.notes.indexOf(this._cursor.curNote);
 
             if (this._doc.song.getChannelIsMod(this._doc.channel) && !this.editingModLabel) {
 
@@ -764,6 +791,7 @@ export class PatternEditor {
         if (isNaN(this._mouseY)) this._mouseY = 0;
         this._usingTouch = false;
         this._shiftHeld = event.shiftKey;
+        this._altHeld = event.altKey;
         this._dragConfirmed = false;
         this._whenCursorPressed();
     }
@@ -1923,7 +1951,15 @@ export class PatternEditor {
                 sequence.append(new ChangeEnsurePatternExists(this._doc, this._doc.channel, this._doc.bar));
                 const pattern: Pattern | null = this._doc.getCurrentPattern(this._barOffset);
                 if (pattern == null) throw new Error();
-                sequence.append(new ChangeNoteAdded(this._doc, pattern, note, this._cursor.curIndex));
+                if (this._overlapActive()) {
+                    // Notas sobrepostas: só corta notas da mesma altura e mantém a lista ordenada pelo início.
+                    sequence.append(new ChangeNoteTruncate(this._doc, pattern, note.start, note.end, note, false, true));
+                    let index: number = 0;
+                    while (index < pattern.notes.length && pattern.notes[index].start <= note.start) index++;
+                    sequence.append(new ChangeNoteAdded(this._doc, pattern, note, index));
+                } else {
+                    sequence.append(new ChangeNoteAdded(this._doc, pattern, note, this._cursor.curIndex));
+                }
 
                 if (this._doc.prefs.enableNotePreview && !this._doc.synth.playing) {
                     // Play the new note out loud if enabled.
@@ -1938,6 +1974,7 @@ export class PatternEditor {
     private _whenMouseMoved = (event: MouseEvent): void => {
         this.controlMode = event.ctrlKey;
         this.shiftMode = event.shiftKey;
+        if (!this._mouseDown) this._altHeld = event.altKey; // Durante um arraste, vale o Alt do clique.
 
         const boundingRect: ClientRect = this._svg.getBoundingClientRect();
         this._mouseX = ((event.clientX || event.pageX) - boundingRect.left) * this._editorWidth / (boundingRect.right - boundingRect.left);
@@ -2147,10 +2184,11 @@ export class PatternEditor {
                         const pattern: Pattern | null = this._doc.getCurrentPattern(this._barOffset);
                         if (pattern == null) throw new Error();
                         // Using parameter skipNote to force proper "collision" checking vis-a-vis pitch for mod channels.
-                        sequence.append(new ChangeNoteTruncate(this._doc, pattern, start, end, new Note(this._cursor.pitch, 0, 0, 0)));
+                        sequence.append(new ChangeNoteTruncate(this._doc, pattern, start, end, new Note(this._cursor.pitch, 0, 0, 0), false, this._overlapActive()));
                         let i: number;
                         for (i = 0; i < pattern.notes.length; i++) {
-                            if (pattern.notes[i].start >= end) break;
+                            // Notas sobrepostas: a lista fica ordenada pelo início, não pelo fim.
+                            if (this._overlapActive() ? pattern.notes[i].start > start : pattern.notes[i].start >= end) break;
                         }
                         const theNote: Note = new Note(this._cursor.pitch, start, end,
                             this._doc.song.getNewNoteVolume(this._doc.song.getChannelIsMod(this._doc.channel), this._doc.channel, this._doc.getCurrentInstrument(this._barOffset), this._cursor.pitch),
@@ -2203,7 +2241,7 @@ export class PatternEditor {
                         this._dragSize = this._cursor.curNote.pins[this._cursor.nearPinIndex].size;
                         this._dragVisible = true;
 
-                        sequence.append(new ChangeNoteTruncate(this._doc, this._pattern, start, end, this._cursor.curNote));
+                        sequence.append(new ChangeNoteTruncate(this._doc, this._pattern, start, end, this._cursor.curNote, false, this._overlapActive()));
                         sequence.append(new ChangePinTime(this._doc, this._cursor.curNote, this._cursor.nearPinIndex, shiftedTime, continuesLastPattern));
                         this._copyPins(this._cursor.curNote);
                     }
@@ -2326,10 +2364,10 @@ export class PatternEditor {
                     if (bendEnd < 0) bendEnd = 0;
                     if (bendEnd > this._doc.song.beatsPerBar * Config.partsPerBeat) bendEnd = this._doc.song.beatsPerBar * Config.partsPerBeat;
                     if (bendEnd > this._cursor.curNote.end) {
-                        sequence.append(new ChangeNoteTruncate(this._doc, this._pattern, this._cursor.curNote.start, bendEnd, this._cursor.curNote));
+                        sequence.append(new ChangeNoteTruncate(this._doc, this._pattern, this._cursor.curNote.start, bendEnd, this._cursor.curNote, false, this._overlapActive()));
                     }
                     if (bendEnd < this._cursor.curNote.start) {
-                        sequence.append(new ChangeNoteTruncate(this._doc, this._pattern, bendEnd, this._cursor.curNote.end, this._cursor.curNote));
+                        sequence.append(new ChangeNoteTruncate(this._doc, this._pattern, bendEnd, this._cursor.curNote.end, this._cursor.curNote, false, this._overlapActive()));
                     }
 
                     let minPitch: number = Number.MAX_VALUE;
@@ -2375,7 +2413,7 @@ export class PatternEditor {
                 this._doc.record(this._dragChange);
                 this._dragChange = null;
                 // Need to re-sort the notes by start time as they might change order if user drags them around.
-                if (this._pattern != null && this._doc.song.getChannelIsMod(this._doc.channel)) this._pattern.notes.sort(function (a, b) { return (a.start == b.start) ? a.pitches[0] - b.pitches[0] : a.start - b.start; });
+                if (this._pattern != null && (this._doc.song.getChannelIsMod(this._doc.channel) || this._pattern.hasOverlappingNotes())) this._pattern.notes.sort(function (a, b) { return (a.start == b.start) ? a.pitches[0] - b.pitches[0] : a.start - b.start; });
 
             } else if (this._draggingStartOfSelection || this._draggingEndOfSelection || this._shiftHeld) {
                 this._setPatternSelection(this._dragChange);
@@ -2384,7 +2422,7 @@ export class PatternEditor {
                 this._doc.record(this._dragChange);
                 this._dragChange = null;
                 // Need to re-sort the notes by start time as they might change order if user drags them around.
-                if (this._pattern != null && this._doc.song.getChannelIsMod(this._doc.channel)) this._pattern.notes.sort(function (a, b) { return (a.start == b.start) ? a.pitches[0] - b.pitches[0] : a.start - b.start; });
+                if (this._pattern != null && (this._doc.song.getChannelIsMod(this._doc.channel) || this._pattern.hasOverlappingNotes())) this._pattern.notes.sort(function (a, b) { return (a.start == b.start) ? a.pitches[0] - b.pitches[0] : a.start - b.start; });
 
             } else {
 

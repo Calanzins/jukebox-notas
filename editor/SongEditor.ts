@@ -1325,6 +1325,8 @@ export class SongEditor {
     private readonly _promptContainerBG: HTMLDivElement = div({ class: "promptContainerBG", style: "display: none; height: 100%; width: 100%; position: fixed; z-index: 99; overflow-x: hidden; pointer-events: none;" });
     private readonly _zoomInButton: HTMLButtonElement = button({ class: "zoomInButton", type: "button", title: "Zoom In" });
     private readonly _zoomOutButton: HTMLButtonElement = button({ class: "zoomOutButton", type: "button", title: "Zoom Out" });
+    // Notas sobrepostas: liga o modo em que clicar dentro de uma nota segurada cria outra por cima (atalho: Alt + clique).
+    private readonly _overlapButton: HTMLButtonElement = button({ class: "overlapButton", type: "button", title: "Sobrepor notas (Alt + clique)" }, "Sobrepor");
     private readonly _patternEditorRow: HTMLDivElement = div({ style: "flex: 1; height: 100%; display: flex; overflow: hidden; justify-content: center;" },
         this._patternEditorPrev.container,
         this._patternEditor.container,
@@ -1336,6 +1338,7 @@ export class SongEditor {
         this._octaveScrollBar.container,
         this._zoomInButton,
         this._zoomOutButton,
+        this._overlapButton,
     );
     private readonly _trackContainer: HTMLDivElement = div({ class: "trackContainer" },
         this._trackEditor.container,
@@ -1732,6 +1735,7 @@ export class SongEditor {
         this._volumeSlider.input.addEventListener("input", this._setVolumeSlider);
         this._zoomInButton.addEventListener("click", this._zoomIn);
         this._zoomOutButton.addEventListener("click", this._zoomOut);
+        this._overlapButton.addEventListener("click", this._toggleOverlapMode);
         this._patternArea.addEventListener("mousedown", this._refocusStageNotEditing);
         this._trackArea.addEventListener("mousedown", this.refocusStage);
 
@@ -2444,6 +2448,10 @@ export class SongEditor {
             this._zoomInButton.style.display = "none";
             this._zoomOutButton.style.display = "none";
         }
+        // Notas sobrepostas: o botão só aparece onde a sobreposição faz sentido.
+        this._overlapButton.style.display = this.doc.song.getChannelIsMod(this.doc.channel) ? "none" : "";
+        this._overlapButton.style.right = prefs.showScrollBar ? "24px" : "4px";
+        this._overlapButton.classList.toggle("active", this.doc.overlapMode);
         this._patternEditor.render();
 
         // make the names of these two variables as short as possible for readability
@@ -5606,6 +5614,12 @@ export class SongEditor {
         this.doc.record(new ChangeAddEnvelope(this.doc));
         this.refocusStage();
         this.doc.addedEnvelope = true;
+    }
+
+    private _toggleOverlapMode = (): void => {
+        this.doc.overlapMode = !this.doc.overlapMode;
+        this.doc.notifier.changed();
+        this.refocusStage();
     }
 
     private _zoomIn = (): void => {

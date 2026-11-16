@@ -502,6 +502,35 @@ export class Pattern {
         this.instruments.length = 1;
     }
 
+    // Notas sobrepostas: true se alguma nota começa antes de uma anterior terminar.
+    // Supõe as notas ordenadas pelo início, como o editor as mantém.
+    public hasOverlappingNotes(): boolean {
+        let latestEnd: number = 0;
+        for (const note of this.notes) {
+            if (note.start < latestEnd) return true;
+            latestEnd = Math.max(latestEnd, note.end);
+        }
+        return false;
+    }
+
+    // Separa as notas em faixas como em uma pista de corrida: cada nota vai para a primeira
+    // faixa livre. A faixa principal recebe tudo que não se sobrepõe e toca pelo caminho
+    // original do JukeBox; as notas das outras faixas tocam com vozes próprias.
+    public splitIntoLanes(): { main: Note[], overlapping: Note[] } {
+        if (!this.hasOverlappingNotes()) return { main: this.notes, overlapping: [] };
+        const main: Note[] = [];
+        const overlapping: Note[] = [];
+        const laneEnds: number[] = [];
+        for (const note of this.notes) {
+            let lane: number = 0;
+            while (lane < laneEnds.length && laneEnds[lane] > note.start) lane++;
+            laneEnds[lane] = note.end;
+            if (lane == 0) main.push(note);
+            else overlapping.push(note);
+        }
+        return { main: main, overlapping: overlapping };
+    }
+
     public toJsonObject(song: Song, channel: Channel, isModChannel: boolean): any {
         const noteArray: Object[] = [];
         for (const note of this.notes) {
@@ -3283,7 +3312,10 @@ export class Song {
     private static readonly _oldestSlarmoosBoxVersion: number = 1;
     private static readonly _latestSlarmoosBoxVersion: number = 5;
     private static readonly _oldestJukeBoxVersion: number = 1;
-    private static readonly _latestJukeBoxVersion: number = 5;
+    private static readonly _latestJukeBoxVersion: number = 6;
+    // Notas sobrepostas: a versão 6 só muda a forma de gravar as pausas entre notas.
+    // Músicas sem sobreposição continuam gravadas como versão 5 e abrem no JukeBox oficial.
+    private static readonly _jukeBoxVersionWithoutOverlap: number = 5;
     // One-character variant detection at the start of URL to distinguish variants such as JummBox, Or Goldbox. "j" and "g" respectively
     //also "u" is ultrabox lol
     // private static readonly _variant = 0x73; //"S" - Slarmoo's Box
@@ -3549,6 +3581,16 @@ export class Song {
         return (channelIndex >= this.pitchChannelCount + this.noiseChannelCount);
     }
 
+    // Notas sobrepostas em canais de instrumento ou bateria. Os canais de modulação já aceitavam.
+    public hasOverlappingNotes(): boolean {
+        for (let channelIndex: number = 0; channelIndex < this.pitchChannelCount + this.noiseChannelCount; channelIndex++) {
+            for (const pattern of this.channels[channelIndex].patterns) {
+                if (pattern.hasOverlappingNotes()) return true;
+            }
+        }
+        return false;
+    }
+
     public initToDefault(andResetChannels: boolean = true): void {
         this.scale = 0;
         this.scaleCustom = [true, false, false, false, false, false, false, false, false, false, false, false];
@@ -3618,8 +3660,9 @@ export class Song {
         let bits: BitFieldWriter;
         let buffer: number[] = [];
 
+        const hasOverlap: boolean = this.hasOverlappingNotes();
         buffer.push(Song._variant);
-        buffer.push(base64IntToCharCode[Song._latestJukeBoxVersion]);
+        buffer.push(base64IntToCharCode[hasOverlap ? Song._latestJukeBoxVersion : Song._jukeBoxVersionWithoutOverlap]);
 
         // Length of the song name string
         buffer.push(SongTagCode.songTitle);
@@ -4137,6 +4180,8 @@ export class Song {
             const maxInstrumentsPerPattern: number = this.getMaxInstrumentsPerPattern(channelIndex);
             const isNoiseChannel: boolean = this.getChannelIsNoise(channelIndex);
             const isModChannel: boolean = this.getChannelIsMod(channelIndex);
+            // Com notas sobrepostas, as pausas podem voltar no tempo, como já acontecia nos canais de modulação.
+            const restsCanGoBack: boolean = isModChannel || hasOverlap;
             const neededInstrumentCountBits: number = Song.getNeededBits(maxInstrumentsPerPattern - Config.instrumentCountMin);
             const neededInstrumentIndexBits: number = Song.getNeededBits(channel.instruments.length - 1);
 
@@ -4216,7 +4261,7 @@ export class Song {
                     for (const note of pattern.notes) {
 
                         // For mod channels, a negative offset may be necessary.
-                        if (note.start < curPart && isModChannel) {
+                        if (note.start < curPart && restsCanGoBack) {
                             bits.write(2, 0); // rest, then...
                             bits.write(1, 1); // negative offset
                             bits.writePartDuration(curPart - note.start);
@@ -4224,7 +4269,7 @@ export class Song {
 
                         if (note.start > curPart) {
                             bits.write(2, 0); // rest
-                            if (isModChannel) bits.write(1, 0); // positive offset, only needed for mod channels
+                            if (restsCanGoBack) bits.write(1, 0); // positive offset, only needed for mod channels
                             bits.writePartDuration(note.start - curPart);
                         }
 
@@ -4329,10 +4374,10 @@ export class Song {
                         curPart = note.end;
                     }
 
-                    if (curPart < this.beatsPerBar * Config.partsPerBeat + (+isModChannel)) {
+                    if (curPart < this.beatsPerBar * Config.partsPerBeat + (+restsCanGoBack)) {
                         bits.write(2, 0); // rest
-                        if (isModChannel) bits.write(1, 0); // positive offset
-                        bits.writePartDuration(this.beatsPerBar * Config.partsPerBeat + (+isModChannel) - curPart);
+                        if (restsCanGoBack) bits.write(1, 0); // positive offset
+                        bits.writePartDuration(this.beatsPerBar * Config.partsPerBeat + (+restsCanGoBack) - curPart);
                     }
                 } else {
                     bits.write(1, 0);
@@ -6225,6 +6270,8 @@ export class Song {
                     const channel: Channel = this.channels[channelIndex];
                     const isNoiseChannel: boolean = this.getChannelIsNoise(channelIndex);
                     const isModChannel: boolean = this.getChannelIsMod(channelIndex);
+                    // Notas sobrepostas: na versão 6, as pausas de todos os canais podem voltar no tempo.
+                    const restsCanGoBack: boolean = isModChannel || (fromJukeBox && !beforeSix);
 
                     const maxInstrumentsPerPattern: number = this.getMaxInstrumentsPerPattern(channelIndex);
                     const neededInstrumentCountBits: number = Song.getNeededBits(maxInstrumentsPerPattern - Config.instrumentCountMin);
@@ -6377,7 +6424,7 @@ export class Song {
                         const newNotes: Note[] = newPattern.notes;
                         let noteCount: number = 0;
                         // Due to arbitrary note positioning, mod channels don't end the count until curPart actually exceeds the max
-                        while (curPart < this.beatsPerBar * Config.partsPerBeat + (+isModChannel)) {
+                        while (curPart < this.beatsPerBar * Config.partsPerBeat + (+restsCanGoBack)) {
 
                             const useOldShape: boolean = bits.read(1) == 1;
                             let newNote: boolean = false;
@@ -6390,7 +6437,7 @@ export class Song {
 
                             if (!useOldShape && !newNote) {
                                 // For mod channels, check if you need to move backward too (notes can appear in any order and offset from each other).
-                                if (isModChannel) {
+                                if (restsCanGoBack) {
                                     const isBackwards: boolean = bits.read(1) == 1;
                                     const restLength: number = bits.readPartDuration();
                                     if (isBackwards) {
@@ -8622,6 +8669,7 @@ class InstrumentState {
     public readonly activeModTones: Deque<Tone> = new Deque<Tone>();
     public readonly releasedTones: Deque<Tone> = new Deque<Tone>(); // Tones that are in the process of fading out after the corresponding notes ended.
     public readonly liveInputTones: Deque<Tone> = new Deque<Tone>(); // Tones that are initiated by a source external to the loaded song data.
+    public readonly overlapTones: Deque<Tone> = new Deque<Tone>(); // Notas sobrepostas: vozes das notas fora da faixa principal.
 
     public type: InstrumentType = InstrumentType.chip;
     public synthesizer: Function | null = null;
@@ -11032,7 +11080,7 @@ export class Synth {
                     const instrumentState: InstrumentState = channelState.instruments[instrumentIndex];
 
                     if (this.isAtStartOfTick) {
-                        let tonesPlayedInThisInstrument: number = instrumentState.activeTones.count() + instrumentState.liveInputTones.count();
+                        let tonesPlayedInThisInstrument: number = instrumentState.activeTones.count() + instrumentState.liveInputTones.count() + instrumentState.overlapTones.count();
 
                         for (let i: number = 0; i < instrumentState.releasedTones.count(); i++) {
                             const tone: Tone = instrumentState.releasedTones.get(i);
@@ -11063,6 +11111,11 @@ export class Synth {
 
                     for (let i: number = 0; i < instrumentState.liveInputTones.count(); i++) {
                         const tone: Tone = instrumentState.liveInputTones.get(i);
+                        this.playTone(channelIndex, bufferIndex, runLength, tone);
+                    }
+
+                    for (let i: number = 0; i < instrumentState.overlapTones.count(); i++) {
+                        const tone: Tone = instrumentState.overlapTones.get(i);
                         this.playTone(channelIndex, bufferIndex, runLength, tone);
                     }
 
@@ -11472,6 +11525,7 @@ export class Synth {
                 while (instrumentState.activeModTones.count() > 0) this.freeTone(instrumentState.activeModTones.popBack());
                 while (instrumentState.releasedTones.count() > 0) this.freeTone(instrumentState.releasedTones.popBack());
                 while (instrumentState.liveInputTones.count() > 0) this.freeTone(instrumentState.liveInputTones.popBack());
+                while (instrumentState.overlapTones.count() > 0) this.freeTone(instrumentState.overlapTones.popBack());
             }
         }
     }
@@ -11704,6 +11758,75 @@ export class Synth {
         }
     }
 
+    // Notas sobrepostas: cada nota fora da faixa principal ganha vozes próprias, que começam
+    // no início da nota e são soltas no fim dela, sem as transições entre notas vizinhas.
+    private determineOverlapTones(song: Song, channelIndex: number, samplesPerTick: number, pattern: Pattern | null, overlappingNotes: Note[], currentPart: number, currentTick: number): void {
+        const channel: Channel = song.channels[channelIndex];
+        const channelState: ChannelState = this.channels[channelIndex];
+        for (let instrumentIndex: number = 0; instrumentIndex < channel.instruments.length; instrumentIndex++) {
+            const instrument: Instrument = channel.instruments[instrumentIndex];
+            const instrumentState: InstrumentState = channelState.instruments[instrumentIndex];
+            const toneList: Deque<Tone> = instrumentState.overlapTones;
+            const singleTone: boolean = instrument.getChord().singleTone;
+
+            // Vozes que as notas tocando agora precisam: uma por altura, ou uma só nos acordes de voz única, como o arpejo.
+            const wanted: { note: Note, pitches: number[] }[] = [];
+            if (pattern != null && (!song.patternInstruments || pattern.instruments.indexOf(instrumentIndex) != -1)) {
+                for (const note of overlappingNotes) {
+                    if (note.start > currentPart || note.end <= currentPart) continue;
+                    let pitches: number[] = note.pitches;
+                    if (effectsIncludeNoteRange(instrument.effects)) pitches = pitches.filter(pitch => pitch >= instrument.lowerNoteLimit && pitch <= instrument.upperNoteLimit);
+                    if (pitches.length <= 0) continue;
+                    if (singleTone) {
+                        wanted.push({ note: note, pitches: pitches });
+                    } else {
+                        for (const pitch of pitches) wanted.push({ note: note, pitches: [pitch] });
+                    }
+                }
+            }
+
+            // Reaproveita as vozes que continuam e solta as que tiveram a nota terminada.
+            const kept: (Tone | null)[] = wanted.map(() => null);
+            for (let i: number = 0; i < toneList.count(); i++) {
+                const tone: Tone = toneList.get(i);
+                const match: number = wanted.findIndex((w, j) => kept[j] == null && w.note == tone.note && (singleTone || w.pitches[0] == tone.pitches[0]));
+                if (match != -1) {
+                    kept[match] = tone;
+                } else if (tone.isOnLastTick) {
+                    this.freeTone(tone);
+                } else {
+                    this.releaseTone(instrumentState, tone);
+                }
+            }
+            while (toneList.count() > 0) toneList.popBack();
+
+            for (let j: number = 0; j < wanted.length; j++) {
+                const note: Note = wanted[j].note;
+                const pitches: number[] = wanted[j].pitches;
+                const tone: Tone = (kept[j] != null) ? kept[j]! : this.newTone();
+                toneList.pushBack(tone);
+                for (let i: number = 0; i < pitches.length; i++) {
+                    tone.pitches[i] = pitches[i];
+                }
+                tone.pitchCount = pitches.length;
+                tone.chordSize = singleTone ? 1 : note.pitches.length;
+                tone.instrumentIndex = instrumentIndex;
+                tone.note = note;
+                tone.noteStartPart = note.start;
+                tone.noteEndPart = note.end;
+                tone.prevNote = null;
+                tone.nextNote = null;
+                tone.prevNotePitchIndex = singleTone ? 0 : note.pitches.indexOf(pitches[0]);
+                tone.nextNotePitchIndex = tone.prevNotePitchIndex;
+                tone.atNoteStart = (Config.ticksPerPart * note.start == currentTick);
+                tone.passedEndOfNote = false;
+                tone.forceContinueAtStart = false;
+                tone.forceContinueAtEnd = false;
+                this.computeTone(song, channelIndex, samplesPerTick, tone, false, false);
+            }
+        }
+    }
+
     private determineCurrentActiveTones(song: Song, channelIndex: number, samplesPerTick: number, playSong: boolean): void {
         const channel: Channel = song.channels[channelIndex];
         const channelState: ChannelState = this.channels[channelIndex];
@@ -11828,14 +11951,20 @@ export class Synth {
             let prevNote: Note | null = null;
             let nextNote: Note | null = null;
 
-            if (playSong && pattern != null && !channel.muted && (!this.isRecording || this.liveInputChannel != channelIndex)) {
-                for (let i: number = 0; i < pattern.notes.length; i++) {
-                    if (pattern.notes[i].end <= currentPart) {
-                        prevNote = pattern.notes[i];
-                    } else if (pattern.notes[i].start <= currentPart && pattern.notes[i].end > currentPart) {
-                        note = pattern.notes[i];
-                    } else if (pattern.notes[i].start > currentPart) {
-                        nextNote = pattern.notes[i];
+            // Notas sobrepostas: só a faixa principal passa pelo caminho original abaixo.
+            const playingPattern: boolean = playSong && pattern != null && !channel.muted && (!this.isRecording || this.liveInputChannel != channelIndex);
+            const lanes: { main: Note[], overlapping: Note[] } | null = playingPattern ? pattern!.splitIntoLanes() : null;
+            this.determineOverlapTones(song, channelIndex, samplesPerTick, pattern, (lanes == null) ? [] : lanes.overlapping, currentPart, currentTick);
+
+            if (lanes != null) {
+                const mainNotes: Note[] = lanes.main;
+                for (let i: number = 0; i < mainNotes.length; i++) {
+                    if (mainNotes[i].end <= currentPart) {
+                        prevNote = mainNotes[i];
+                    } else if (mainNotes[i].start <= currentPart && mainNotes[i].end > currentPart) {
+                        note = mainNotes[i];
+                    } else if (mainNotes[i].start > currentPart) {
+                        nextNote = mainNotes[i];
                         break;
                     }
                 }
@@ -11881,7 +12010,8 @@ export class Synth {
                         // If the beginning of the note coincides with the beginning of the pattern,
                         let prevPattern: Pattern | null = (this.prevBar == null) ? null : song.getPattern(channelIndex, this.prevBar);
                         if (prevPattern != null) {
-                            const lastNote: Note | null = (prevPattern.notes.length <= 0) ? null : prevPattern.notes[prevPattern.notes.length - 1];
+                            const prevMainNotes: Note[] = prevPattern.splitIntoLanes().main;
+                            const lastNote: Note | null = (prevMainNotes.length <= 0) ? null : prevMainNotes[prevMainNotes.length - 1];
                             if (lastNote != null && lastNote.end == partsPerBar) {
                                 const patternForcesContinueAtStart: boolean = note.continuesLastPattern && Synth.adjacentNotesHaveMatchingPitches(lastNote, note);
                                 const chordOfCompatibleInstrument: Chord | null = this.adjacentPatternHasCompatibleInstrumentTransition(song, channel, pattern!, prevPattern, instrumentIndex, transition, chord, note, lastNote, patternForcesContinueAtStart);
@@ -11902,7 +12032,8 @@ export class Synth {
                         // adjacent note at the beginning of the next pattern.
                         let nextPattern: Pattern | null = (this.nextBar == null) ? null : song.getPattern(channelIndex, this.nextBar);
                         if (nextPattern != null) {
-                            const firstNote: Note | null = (nextPattern.notes.length <= 0) ? null : nextPattern.notes[0];
+                            const nextMainNotes: Note[] = nextPattern.splitIntoLanes().main;
+                            const firstNote: Note | null = (nextMainNotes.length <= 0) ? null : nextMainNotes[0];
                             if (firstNote != null && firstNote.start == 0) {
                                 const nextPatternForcesContinueAtStart: boolean = firstNote.continuesLastPattern && Synth.adjacentNotesHaveMatchingPitches(note, firstNote);
                                 const chordOfCompatibleInstrument: Chord | null = this.adjacentPatternHasCompatibleInstrumentTransition(song, channel, pattern!, nextPattern, instrumentIndex, transition, chord, note, firstNote, nextPatternForcesContinueAtStart);

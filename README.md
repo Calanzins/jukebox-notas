@@ -1,3 +1,35 @@
+# JukeBox com notas sobrepostas
+
+Versão modificada do [JukeBox](https://jukeebox.github.io), feita pela Calanzins.
+A única mudança é permitir notas sobrepostas no mesmo instrumento: enquanto uma nota está segurada, outra pode começar no meio dela.
+
+Site: https://calanzins.github.io/jukebox-notas/
+
+## Como usar
+
+- Ligue o botão **Sobrepor**, abaixo dos botões de zoom, e clique dentro de uma nota segurada em outra altura. Funciona também no celular.
+- No PC, **Alt + clique** faz o mesmo sem ligar o botão.
+- Com o modo desligado, o editor funciona como no JukeBox original: clicar em outra altura dentro de uma nota adiciona a altura ao acorde.
+
+## Compatibilidade
+
+- Músicas sem notas sobrepostas são salvas no formato do JukeBox original (versão 5) e abrem nele normalmente.
+- Músicas com notas sobrepostas são salvas como versão 6 e só abrem nesta versão.
+
+## Limitações
+
+- As notas sobrepostas não usam as transições entre notas vizinhas, como o slide, nem o strum.
+- Com o modo desligado, editar, colar ou arrastar notas pode cortar as que estão por cima, como o JukeBox sempre fez.
+
+## Créditos
+
+JukeBox, desenvolvido por CoolTasDude, é um mod do Slarmoo's Box, que é um mod do UltraBox, que trouxe recursos do Pandora's Box para o GoldBox; ambos são mods do JummBox, que é um mod do [BeepBox](https://beepbox.co), criado por John Nesky.
+Todo o crédito pelo editor e pelo sintetizador é dos autores originais. A licença MIT original está em [LICENSE.md](LICENSE.md).
+
+O texto abaixo é o README original do projeto.
+
+---
+
 # Slarmoo's Box Testing
 
 Slarmoo's Box is an online tool for sketching and sharing instrumental music.
