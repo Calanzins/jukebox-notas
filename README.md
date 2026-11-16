@@ -15,6 +15,8 @@ Site: https://calanzins.github.io/jukebox-notas/
 
 - Músicas sem notas sobrepostas são salvas no formato do JukeBox original (versão 5) e abrem nele normalmente.
 - Músicas com notas sobrepostas são salvas como versão 6 e só abrem nesta versão.
+- Ao importar um MIDI, cada nota vira uma nota própria, sobreposta às outras, em vez de um acorde que recomeça a cada nota nova.
+- Cada instrumento toca até 64 vozes antes de cortar rápido as caudas das notas soltas (no original eram 18).
 
 ## Limitações
 

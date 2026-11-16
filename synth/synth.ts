@@ -11760,7 +11760,8 @@ export class Synth {
 
     // Notas sobrepostas: cada nota fora da faixa principal ganha vozes próprias, que começam
     // no início da nota e são soltas no fim dela, sem as transições entre notas vizinhas.
-    private determineOverlapTones(song: Song, channelIndex: number, samplesPerTick: number, pattern: Pattern | null, overlappingNotes: Note[], currentPart: number, currentTick: number): void {
+    private determineOverlapTones(song: Song, channelIndex: number, samplesPerTick: number, pattern: Pattern | null, overlappingNotes: Note[], mainNotes: Note[], currentPart: number, currentTick: number): void {
+        const partsPerBar: number = Config.partsPerBeat * song.beatsPerBar;
         const channel: Channel = song.channels[channelIndex];
         const channelState: ChannelState = this.channels[channelIndex];
         for (let instrumentIndex: number = 0; instrumentIndex < channel.instruments.length; instrumentIndex++) {
@@ -11785,25 +11786,59 @@ export class Synth {
                 }
             }
 
-            // Reaproveita as vozes que continuam e solta as que tiveram a nota terminada.
+            // Reaproveita as vozes que continuam.
             const kept: (Tone | null)[] = wanted.map(() => null);
+            const continued: boolean[] = wanted.map(() => false);
+            const unmatched: Tone[] = [];
             for (let i: number = 0; i < toneList.count(); i++) {
                 const tone: Tone = toneList.get(i);
                 const match: number = wanted.findIndex((w, j) => kept[j] == null && w.note == tone.note && (singleTone || w.pitches[0] == tone.pitches[0]));
-                if (match != -1) {
-                    kept[match] = tone;
-                } else if (tone.isOnLastTick) {
-                    this.freeTone(tone);
-                } else {
-                    this.releaseTone(instrumentState, tone);
-                }
+                if (match != -1) kept[match] = tone;
+                else unmatched.push(tone);
             }
             while (toneList.count() > 0) toneList.popBack();
+
+            // No início do compasso, uma nota marcada para continuar o padrão anterior herda a voz
+            // da nota de mesma altura que terminou no fim do compasso, em vez de recomeçar.
+            if (currentTick == 0) {
+                const samePitch = (tone: Tone, w: { note: Note, pitches: number[] }): boolean =>
+                    tone.noteEndPart == partsPerBar && tone.pitches[0] == w.pitches[0];
+                for (let j: number = 0; j < wanted.length; j++) {
+                    const w = wanted[j];
+                    if (kept[j] != null || w.note.start != 0 || !w.note.continuesLastPattern) continue;
+                    const fromOverlap: number = unmatched.findIndex(tone => samePitch(tone, w));
+                    if (fromOverlap != -1) {
+                        kept[j] = unmatched.splice(fromOverlap, 1)[0];
+                        continued[j] = true;
+                        continue;
+                    }
+                    // A voz também pode vir da faixa principal, se a nota principal deste compasso não a usar.
+                    const mainKeeps = (pitch: number): boolean => mainNotes.some(note => note.start == 0 && note.continuesLastPattern && note.pitches.indexOf(pitch) != -1);
+                    for (let i: number = 0; i < instrumentState.activeTones.count(); i++) {
+                        const tone: Tone = instrumentState.activeTones.get(i);
+                        if (samePitch(tone, w) && !mainKeeps(tone.pitches[0])) {
+                            instrumentState.activeTones.remove(i);
+                            kept[j] = tone;
+                            continued[j] = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Solta as vozes que tiveram a nota terminada.
+            for (const tone of unmatched) {
+                if (tone.isOnLastTick) this.freeTone(tone);
+                else this.releaseTone(instrumentState, tone);
+            }
 
             for (let j: number = 0; j < wanted.length; j++) {
                 const note: Note = wanted[j].note;
                 const pitches: number[] = wanted[j].pitches;
                 const tone: Tone = (kept[j] != null) ? kept[j]! : this.newTone();
+                const sameNote: boolean = kept[j] != null && tone.note == note;
+                const prevNote: Note | null = continued[j] ? tone.note : (sameNote ? tone.prevNote : null);
+                const forceContinue: boolean = continued[j] || (sameNote && tone.forceContinueAtStart);
                 toneList.pushBack(tone);
                 for (let i: number = 0; i < pitches.length; i++) {
                     tone.pitches[i] = pitches[i];
@@ -11814,13 +11849,13 @@ export class Synth {
                 tone.note = note;
                 tone.noteStartPart = note.start;
                 tone.noteEndPart = note.end;
-                tone.prevNote = null;
+                tone.prevNote = prevNote;
                 tone.nextNote = null;
                 tone.prevNotePitchIndex = singleTone ? 0 : note.pitches.indexOf(pitches[0]);
                 tone.nextNotePitchIndex = tone.prevNotePitchIndex;
                 tone.atNoteStart = (Config.ticksPerPart * note.start == currentTick);
                 tone.passedEndOfNote = false;
-                tone.forceContinueAtStart = false;
+                tone.forceContinueAtStart = forceContinue;
                 tone.forceContinueAtEnd = false;
                 this.computeTone(song, channelIndex, samplesPerTick, tone, false, false);
             }
@@ -11954,7 +11989,7 @@ export class Synth {
             // Notas sobrepostas: só a faixa principal passa pelo caminho original abaixo.
             const playingPattern: boolean = playSong && pattern != null && !channel.muted && (!this.isRecording || this.liveInputChannel != channelIndex);
             const lanes: { main: Note[], overlapping: Note[] } | null = playingPattern ? pattern!.splitIntoLanes() : null;
-            this.determineOverlapTones(song, channelIndex, samplesPerTick, pattern, (lanes == null) ? [] : lanes.overlapping, currentPart, currentTick);
+            this.determineOverlapTones(song, channelIndex, samplesPerTick, pattern, (lanes == null) ? [] : lanes.overlapping, (lanes == null) ? [] : lanes.main, currentPart, currentTick);
 
             if (lanes != null) {
                 const mainNotes: Note[] = lanes.main;

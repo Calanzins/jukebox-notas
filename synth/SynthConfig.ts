@@ -1592,7 +1592,9 @@ export class Config {
     public static readonly pitchOctaves: number = 8;
     public static readonly modCount: number = 6;
     public static readonly maxPitch: number = Config.pitchOctaves * Config.pitchesPerOctave;
-    public static readonly maximumTonesPerChannel: number = Config.maxChordSize * 2;
+    // Notas sobrepostas: acima deste número de vozes num instrumento, as caudas das notas soltas
+    // são cortadas rápido. Era 18 (o dobro do acorde máximo); subiu para caber MIDIs densos.
+    public static readonly maximumTonesPerChannel: number = 64;
     public static readonly justIntonationSemitones: number[] = [1.0 / 2.0, 8.0 / 15.0, 9.0 / 16.0, 3.0 / 5.0, 5.0 / 8.0, 2.0 / 3.0, 32.0 / 45.0, 3.0 / 4.0, 4.0 / 5.0, 5.0 / 6.0, 8.0 / 9.0, 15.0 / 16.0, 1.0, 16.0 / 15.0, 9.0 / 8.0, 6.0 / 5.0, 5.0 / 4.0, 4.0 / 3.0, 45.0 / 32.0, 3.0 / 2.0, 8.0 / 5.0, 5.0 / 3.0, 16.0 / 9.0, 15.0 / 8.0, 2.0].map(x => Math.log2(x) * Config.pitchesPerOctave);
     public static readonly pitchShiftRange: number = Config.justIntonationSemitones.length;
     public static readonly pitchShiftCenter: number = Config.pitchShiftRange >> 1;

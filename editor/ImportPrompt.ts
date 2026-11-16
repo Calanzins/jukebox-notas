@@ -570,6 +570,12 @@ export class ImportPrompt implements Prompt {
                 let prevEventPart: number = 0;
                 let pitchSum: number = 0;
                 let pitchCount: number = 0;
+                // Notas sobrepostas: cada altura MIDI vira uma nota própria. Guardamos quando cada
+                // altura foi tocada e com que força, e a nota aberta de cada altura no padrão atual.
+                const startPartByPitch: number[] = [];
+                const velocityByPitch: number[] = [];
+                let openNotes: Map<number, Note> = new Map();
+                let openNotesPattern: Pattern | null = null;
 
                 for (let noteEvent of noteEvents[midiChannel]) {
                     const nextEventMidiTick: number = noteEvent.midiTick;
@@ -778,22 +784,43 @@ export class ImportPrompt implements Prompt {
                                     minPitch = Math.min(minPitch, -notePin.interval);
                                 }
 
-                                // Build the note chord out of the current pitches, shifted into BeepBox channelBasePitch relative values.
-                                note.pitches.length = 0;
-                                for (let pitchIndex: number = 0; pitchIndex < Math.min(Config.maxChordSize, heldPitches.length); pitchIndex++) {
-                                    let heldPitch: number = heldPitches[pitchIndex + Math.max(0, heldPitches.length - Config.maxChordSize)] * midiIntervalScale;
+                                // Notas sobrepostas: em vez de um acorde que recomeça a cada evento do canal, cada
+                                // altura segurada vira uma nota própria. Se a altura continua segurada, sem ser
+                                // tocada de novo, a nota que já existe neste padrão só é estendida.
+                                if (openNotesPattern != pattern) {
+                                    openNotes = new Map();
+                                    openNotesPattern = pattern;
+                                }
+                                for (const midiPitch of heldPitches) {
+                                    let heldPitch: number = midiPitch * midiIntervalScale;
                                     if (preset != null && preset.midiSubharmonicOctaves != undefined) {
                                         heldPitch -= 12 * preset.midiSubharmonicOctaves;
                                     }
                                     const shiftedPitch: number = Math.max(minPitch, Math.min(maxPitch, Math.round((heldPitch + heldPitchOffset) / intervalScale)));
-                                    if (note.pitches.indexOf(shiftedPitch) == -1) {
-                                        note.pitches.push(shiftedPitch);
-                                        const weight: number = note.end - note.start;
-                                        pitchSum += shiftedPitch * weight;
-                                        pitchCount += weight;
+                                    // O tamanho dos pinos usa a força da última nota do canal; cada altura usa a sua.
+                                    const velocityRatio: number = (velocityByPitch[midiPitch] == undefined) ? 1 : velocityByPitch[midiPitch] / Math.max(1, currentVelocity);
+                                    const pins: NotePin[] = note.pins.map(pin => makeNotePin(pin.interval, pin.time, Math.max(0, Math.min(Config.noteSizeMax, Math.round(pin.size * velocityRatio)))));
+                                    const retriggered: boolean = (startPartByPitch[midiPitch] == prevEventPart) && (bar == startBar);
+                                    const openNote: Note | undefined = openNotes.get(midiPitch);
+                                    const delta: number = (openNote == undefined) ? 0 : shiftedPitch - openNote.pitches[0];
+                                    if (openNote != undefined && !retriggered && openNote.end == noteStartPart && openNote.pins[openNote.pins.length - 1].interval == delta) {
+                                        const offset: number = noteStartPart - openNote.start;
+                                        for (let pinIndex: number = 1; pinIndex < pins.length; pinIndex++) {
+                                            openNote.pins.push(makeNotePin(pins[pinIndex].interval + delta, pins[pinIndex].time + offset, pins[pinIndex].size));
+                                        }
+                                        openNote.end = noteEndPart;
+                                    } else {
+                                        const singleNote: Note = new Note(shiftedPitch, noteStartPart, noteEndPart, Config.noteSizeMax, false);
+                                        singleNote.pins = pins;
+                                        // Uma altura que vem segurada do compasso anterior continua sem recomeçar.
+                                        singleNote.continuesLastPattern = (noteStartPart == 0 && !retriggered);
+                                        pattern.notes.push(singleNote);
+                                        openNotes.set(midiPitch, singleNote);
                                     }
+                                    const weight: number = noteEndPart - noteStartPart;
+                                    pitchSum += shiftedPitch * weight;
+                                    pitchCount += weight;
                                 }
-                                pattern.notes.push(note);
                             }
                         }
                     }
@@ -804,6 +831,8 @@ export class ImportPrompt implements Prompt {
                     }
                     if (noteEvent.on) {
                         heldPitches.push(noteEvent.pitch);
+                        startPartByPitch[noteEvent.pitch] = nextEventPart;
+                        velocityByPitch[noteEvent.pitch] = noteEvent.velocity;
                         currentVelocity = noteEvent.velocity;
                         currentProgram = noteEvent.program;
                         currentInstrumentVolume = noteEvent.instrumentVolume;
