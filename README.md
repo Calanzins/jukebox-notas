@@ -1,9 +1,10 @@
-# JukeBox com notas sobrepostas
+# ViberBox
 
-Versão modificada do [JukeBox](https://jukeebox.github.io), feita pela Calanzins.
-A única mudança é permitir notas sobrepostas no mesmo instrumento: enquanto uma nota está segurada, outra pode começar no meio dela.
+ViberBox é um mod do [JukeBox](https://jukeebox.github.io), feito pela Calanzins.
+A principal mudança é permitir notas sobrepostas no mesmo instrumento: enquanto uma nota está segurada, outra pode começar no meio dela.
+O tema padrão, "ViberBox", usa preto, branco e rosa (#e05fb7); os outros temas do JukeBox continuam disponíveis.
 
-Site: https://calanzins.github.io/jukebox-notas/
+Site: https://calanzins.github.io/viberbox/
 
 ## Como usar
 
@@ -14,7 +15,7 @@ Site: https://calanzins.github.io/jukebox-notas/
 ## Compatibilidade
 
 - Músicas sem notas sobrepostas são salvas no formato do JukeBox original (versão 5) e abrem nele normalmente.
-- Músicas com notas sobrepostas são salvas como versão 6 e só abrem nesta versão.
+- Músicas com notas sobrepostas são salvas como versão 6 e só abrem no ViberBox.
 - Ao importar um MIDI, cada nota vira uma nota própria, sobreposta às outras, em vez de um acorde que recomeça a cada nota nova.
 - Cada instrumento toca até 64 vozes antes de cortar rápido as caudas das notas soltas (no original eram 18).
 

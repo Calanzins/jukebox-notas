@@ -10,6 +10,9 @@ const { button, div, h2, select, option, optgroup } = HTML;
 
 export class ThemePrompt implements Prompt {
 	private readonly _themeSelect: HTMLSelectElement = select({ style: "width: 100%;" },
+		optgroup({ label: "ViberBox" },
+			option({ value: "viberbox" }, "ViberBox"),
+		),
 		optgroup({ label: "Objectively The Best Ones" },
 			option({ value: "violet verdant" }, "Violet Verdant"),
 			option({ value: "nebula" }, "Nebula"),

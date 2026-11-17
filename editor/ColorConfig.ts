@@ -14,7 +14,7 @@ export interface ChannelColors extends BeepBoxOption {
 export class ColorConfig {
     public static colorLookup: Map<number, ChannelColors> = new Map<number, ChannelColors>();
 	public static usesColorFormula: boolean = false;
-	public static readonly defaultTheme: string = "violet verdant";
+	public static readonly defaultTheme: string = "viberbox";
     public static readonly themes: { [name: string]: string } = {
 	"dark classic": ``,
         "dark competition": `
@@ -1632,6 +1632,48 @@ export class ColorConfig {
 			--mod-label-primary-text: white;
 			--disabled-note-primary: #5d5d5d;
 			--disabled-note-secondary: #292929;
+		}`,
+        "viberbox": `
+		:root {
+			--page-margin: #000000;
+			--editor-background: #000000;
+			--hover-preview: #ffffff;
+			--playhead: #ffffff;
+			--primary-text: #ffffff;
+			--secondary-text: #b0809f;
+			--inverted-text: #000000;
+			--text-selection: rgba(224, 95, 183, 0.99);
+			--box-selection-fill: rgba(224, 95, 183, 0.35);
+			--loop-accent: #e05fb7;
+			--link-accent: #e05fb7;
+			--ui-widget-background: #2a1022;
+			--ui-widget-focus: #4a1d3d;
+			--pitch-background: #1a1a1a;
+			--tonic: #6e2d5a;
+			--fifth-note: #3a3a3a;
+			--white-piano-key: #ffffff;
+			--black-piano-key: #4a1d3d;
+			--white-piano-key-text: #000000;
+			--black-piano-key-text: #ffffff;
+			--track-editor-bg-pitch: #2a1022;
+			--track-editor-bg-pitch-dim: #120610;
+			--track-editor-bg-noise: #262626;
+			--track-editor-bg-noise-dim: #111111;
+			--track-editor-bg-mod: #1f1f2e;
+			--track-editor-bg-mod-dim: #0e0e16;
+			--multiplicative-mod-slider: #b04a90;
+			--overwriting-mod-slider: #e05fb7;
+			--indicator-primary: #e05fb7;
+			--indicator-secondary: #4a1d3d;
+			--select2-opt-group: #4a1d3d;
+			--input-box-outline: #6e2d5a;
+			--mute-button-normal: #e05fb7;
+			--mute-button-mod: #ffffff;
+			--mod-label-primary: #2a1022;
+			--mod-label-secondary-text: #b0809f;
+			--mod-label-primary-text: #ffffff;
+			--disabled-note-primary: #8a8a8a;
+			--disabled-note-secondary: #5a5a5a;
 		}`,
         "violet verdant": `
 		:root {
