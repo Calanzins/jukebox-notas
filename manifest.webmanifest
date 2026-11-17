@@ -1,7 +1,7 @@
 {
 	"name": "ViberBox",
 	"short_name": "ViberBox",
-	"description": "ViberBox é um mod do JukeBox feito pela Calanzins, com notas sobrepostas no mesmo instrumento.",
+	"description": "ViberBox is a mod of JukeBox made by Calanzins that allows overlapping notes on the same instrument.",
 	"scope": "./",
 	"start_url": "./",
 	"display": "browser",
