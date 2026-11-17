@@ -147,9 +147,8 @@ if ("scrollRestoration" in history) history.scrollRestoration = "manual";
 
 editor.updatePlayButton();
 
-if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/service_worker.js", { updateViaCache: "all", scope: "/" }).catch(() => { });
-}
+// ViberBox: o registro do service worker foi removido. O arquivo /service_worker.js não existe
+// neste site (ele fica numa subpasta do GitHub Pages), então o registro só gerava um erro 404.
 
 // When compiling synth.ts as a standalone module named "beepbox", expose these classes as members to JavaScript:
 export { Dictionary, DictionaryArray, EnvelopeType, InstrumentType, Transition, Chord, Envelope, Config, NotePin, Note, Pattern, Instrument, Channel, Song, Synth, ColorConfig, EditorConfig, SongDocument, SongEditor, ExportPrompt, ChangePreset };
