@@ -16,7 +16,9 @@ export interface RecoveredSong {
 }
 
 const versionPrefix = "songVersion: ";
-const maximumSongCount = 8;
+// ViberBox: todas as músicas ficam guardadas. Só as mais recentes mantêm o histórico
+// de versões; as outras ficam só com a última versão, para economizar espaço.
+const songsWithFullHistory = 8;
 const maximumWorkPerVersion = 3 * 60 * 1000; // 3 minutes
 const minimumWorkPerSpan = 1 * 60 * 1000; // 1 minute
 
@@ -43,7 +45,7 @@ function compareSongs(a: RecoveredSong, b: RecoveredSong): number {
 
 export function errorAlert(error: any): void {
     console.warn(error);
-    window.alert("Whoops, the song data appears to have been corrupted! Please try to recover the last working version of the song from the \"Recover Recent Song...\" option in BeepBox's \"File\" menu.");
+    window.alert("Whoops, the song data appears to have been corrupted! Please try to recover the last working version of the song from the \"Saved Songs...\" option in ViberBox's \"File\" menu.");
 }
 
 
@@ -77,6 +79,71 @@ export class SongRecovery {
         }
         songs.sort(compareSongs);
         return songs;
+    }
+
+    // Grava no localStorage. Se o espaço do navegador acabar, apaga versões antigas
+    // (nunca a última versão de uma música), começando pelas músicas menos recentes,
+    // e tenta de novo. Se não houver mais o que apagar, avisa e não grava.
+    private static _setItemFreeingSpace(key: string, data: string, songs: RecoveredSong[]): boolean {
+        while (true) {
+            try {
+                localStorage.setItem(key, data);
+                return true;
+            } catch (error) {
+                let freed: boolean = false;
+                for (let i: number = songs.length - 1; i >= 0 && !freed; i--) {
+                    const versions: RecoveredVersion[] = songs[i].versions;
+                    // Pula a versão mais recente e a que está sendo gravada agora.
+                    for (let j: number = versions.length - 1; j >= 1; j--) {
+                        const oldKey: string = versionToKey(versions[j]);
+                        if (oldKey == key) continue;
+                        localStorage.removeItem(oldKey);
+                        versions.splice(j, 1);
+                        freed = true;
+                        break;
+                    }
+                }
+                if (!freed) {
+                    console.warn(error);
+                    window.alert("The browser storage for saved songs is full. Please export the songs you want to keep (File > Export) before making more.");
+                    return false;
+                }
+            }
+        }
+    }
+
+    // Troca o nome de uma música guardada: muda o nome na lista e o título dentro
+    // dos dados de cada versão, para a música abrir com o nome novo.
+    public static renameSong(song: RecoveredSong, newName: string): void {
+        newName = newName.substring(0, 30);
+        const decoder: Song = new Song();
+        const savedDocumentTitle: string = document.title;
+        const songs: RecoveredSong[] = SongRecovery.getAllRecoveredSongs();
+        for (let i: number = 0; i < song.versions.length; i++) {
+            const oldVersion: RecoveredVersion = song.versions[i];
+            const oldKey: string = versionToKey(oldVersion);
+            const oldData: string | null = localStorage.getItem(oldKey);
+            if (oldData == null) continue;
+            let newData: string = oldData;
+            try {
+                decoder.fromBase64String(oldData);
+                decoder.title = newName;
+                newData = decoder.toBase64String();
+            } catch (error) {
+                console.warn(error); // Se não der para reescrever os dados, renomeia só na lista.
+            }
+            const newVersion: RecoveredVersion = { uid: oldVersion.uid, time: oldVersion.time, name: newName, work: oldVersion.work };
+            const newKey: string = versionToKey(newVersion);
+            if (newKey == oldKey && newData == oldData) continue;
+            localStorage.removeItem(oldKey);
+            if (!SongRecovery._setItemFreeingSpace(newKey, newData, songs)) {
+                localStorage.setItem(oldKey, oldData); // Devolve a versão antiga.
+                break;
+            }
+            song.versions[i] = newVersion;
+        }
+        // Ler os dados muda o título da aba; volta ao que era.
+        document.title = savedDocumentTitle;
     }
 
     public saveVersion(uid: string, name: string, songData: string): void {
@@ -116,7 +183,13 @@ export class SongRecovery {
             const newVersion: RecoveredVersion = { uid: uid, name: newName, time: newTime, work: newWork };
             const newKey: string = versionToKey(newVersion);
             versions.unshift(newVersion);
-            localStorage.setItem(newKey, songData);
+            // A música editada agora passa a ser a mais recente da lista.
+            songs.splice(songs.indexOf(currentSong), 1);
+            songs.unshift(currentSong);
+            if (!SongRecovery._setItemFreeingSpace(newKey, songData, songs)) {
+                versions.shift();
+                return;
+            }
 
             // Consider deleting an old version to free up space.
             let minSpan: number = minimumWorkPerSpan; // start out with a gap between versions.
@@ -146,29 +219,13 @@ export class SongRecovery {
                 minSpan *= spanMult;
             }
 
-            // If there are too many songs, discard the least important ones.
-            // Songs that are older, or have less work, are less important.
-            while (songs.length > maximumSongCount) {
-                let leastImportantSong: RecoveredSong | null = null;
-                let leastImportance: number = Number.POSITIVE_INFINITY;
-                for (let i: number = Math.round(maximumSongCount / 2); i < songs.length; i++) {
-                    const song: RecoveredSong = songs[i];
-                    const timePassed: number = newTime - song.versions[0].time;
-                    // Convert the time into a factor of 12 hours, add one, then divide by the result.
-                    // This creates a curve that starts at 1, and then gradually drops off.
-                    const timeScale: number = 1.0 / ((timePassed / (12 * 60 * 60 * 1000)) + 1.0);
-                    // Add 5 minutes of work, to balance out simple songs a little bit.
-                    const adjustedWork: number = song.versions[0].work + 5 * 60 * 1000;
-                    const weight: number = adjustedWork * timeScale;
-                    if (leastImportance > weight) {
-                        leastImportance = weight;
-                        leastImportantSong = song;
-                    }
+            // Músicas fora das mais recentes ficam só com a última versão.
+            for (let i: number = songsWithFullHistory; i < songs.length; i++) {
+                const oldVersions: RecoveredVersion[] = songs[i].versions;
+                for (let j: number = 1; j < oldVersions.length; j++) {
+                    localStorage.removeItem(versionToKey(oldVersions[j]));
                 }
-                for (const version of leastImportantSong!.versions) {
-                    localStorage.removeItem(versionToKey(version));
-                }
-                songs.splice(songs.indexOf(leastImportantSong!), 1);
+                oldVersions.length = 1;
             }
         }, 750); // Wait 3/4 of a second before saving a version.
     }

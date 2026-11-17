@@ -388,6 +388,11 @@ export class SongDocument {
         }
     }
 
+    // Identificador da música aberta na lista de músicas guardadas.
+    public get recoveryUid(): string {
+        return this._recoveryUid;
+    }
+
     private _resetSongRecoveryUid(): void {
         this._recoveryUid = generateUid();
     }

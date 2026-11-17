@@ -10,6 +10,7 @@ Site: https://calanzins.github.io/viberbox/
 
 - Ligue o botão **Sobrepor**, abaixo dos botões de zoom, e clique dentro de uma nota segurada em outra altura. Funciona também no celular.
 - No PC, **Alt + clique** faz o mesmo sem ligar o botão.
+- **File > Saved Songs** guarda todas as músicas feitas neste navegador (no original eram só as 8 recentes) e permite trocar o nome delas. Não é backup: limpar os dados do navegador apaga a lista.
 - Com o modo desligado, o editor funciona como no JukeBox original: clicar em outra altura dentro de uma nota adiciona a altura ao acorde.
 
 ## Compatibilidade
