@@ -1327,6 +1327,9 @@ export class SongEditor {
     private readonly _zoomOutButton: HTMLButtonElement = button({ class: "zoomOutButton", type: "button", title: "Zoom Out" });
     // Notas sobrepostas: liga o modo em que clicar dentro de uma nota segurada cria outra por cima (atalho: Alt + clique).
     private readonly _overlapButton: HTMLButtonElement = button({ class: "overlapButton", type: "button", title: "Sobrepor notas (Alt + clique)" }, "Sobrepor");
+    // No celular o botão acima fica escondido e este aparece numa linha própria, acima das tracks.
+    private readonly _overlapBarButton: HTMLButtonElement = button({ class: "overlapBarButton", type: "button", title: "Sobrepor notas" }, "Sobrepor");
+    private readonly _overlapBar: HTMLDivElement = div({ class: "overlapBar" }, this._overlapBarButton);
     private readonly _patternEditorRow: HTMLDivElement = div({ style: "flex: 1; height: 100%; display: flex; overflow: hidden; justify-content: center;" },
         this._patternEditorPrev.container,
         this._patternEditor.container,
@@ -1352,6 +1355,7 @@ export class SongEditor {
     );
     public readonly _barScrollBar: BarScrollBar = new BarScrollBar(this.doc);
     private readonly _trackArea: HTMLDivElement = div({ class: "track-area" },
+        this._overlapBar,
         this._trackAndMuteContainer,
         this._barScrollBar.container,
     );
@@ -1736,6 +1740,7 @@ export class SongEditor {
         this._zoomInButton.addEventListener("click", this._zoomIn);
         this._zoomOutButton.addEventListener("click", this._zoomOut);
         this._overlapButton.addEventListener("click", this._toggleOverlapMode);
+        this._overlapBarButton.addEventListener("click", this._toggleOverlapMode);
         this._patternArea.addEventListener("mousedown", this._refocusStageNotEditing);
         this._trackArea.addEventListener("mousedown", this.refocusStage);
 
@@ -2452,6 +2457,9 @@ export class SongEditor {
         this._overlapButton.style.display = this.doc.song.getChannelIsMod(this.doc.channel) ? "none" : "";
         this._overlapButton.style.right = prefs.showScrollBar ? "24px" : "4px";
         this._overlapButton.classList.toggle("active", this.doc.overlapMode);
+        // A linha do celular segue o mesmo estado do botão principal.
+        this._overlapBar.style.visibility = this.doc.song.getChannelIsMod(this.doc.channel) ? "hidden" : "";
+        this._overlapBarButton.classList.toggle("active", this.doc.overlapMode);
         this._patternEditor.render();
 
         // make the names of these two variables as short as possible for readability

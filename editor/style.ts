@@ -538,10 +538,14 @@ html {
 	font-size: 11px;
 	opacity: 0.75;
 }
-.beepboxEditor .overlapButton.active {
+.beepboxEditor .overlapButton.active, .beepboxEditor .overlapBarButton.active {
 	opacity: 1;
 	color: var(--ui-widget-background);
 	background: var(--primary-text);
+}
+/* Linha do Sobrepor acima das tracks: só existe no layout de celular (ver @media max-width: 710px). */
+.beepboxEditor .overlapBar {
+	display: none;
 }
 .beepboxEditor .zoomInButton {
 	top: 10px;
@@ -1663,6 +1667,20 @@ li.select2-results__option[role=group] > strong:hover {
 	}
 	.beepboxEditor .trackAndMuteContainer {
 		overflow-x: auto;
+	}
+	/* No celular o Sobrepor sai do meio das notas e vira uma linha própria acima das tracks. */
+	.beepboxEditor .overlapButton {
+		display: none !important;
+	}
+	.beepboxEditor .overlapBar {
+		display: block;
+		margin: 0 0 4px 0;
+	}
+	.beepboxEditor .overlapBarButton {
+		width: 100%;
+		height: 28px;
+		font-size: 12px;
+		opacity: 0.75;
 	}
 	.beepboxEditor .barScrollBar {
 		display: none;
